@@ -7,12 +7,17 @@ from rest_framework.routers import DefaultRouter
 from empleados.views import EmpleadoViewSet
 from accounts.views import PerfilUsuarioAPIView
 from dashboard.views import MetricsSummaryView, RecentActivityView 
+from productos.views import ProductoViewSet
+from incidentes.views import IncidenteViewSet
+from alquileres.models import Alquiler, DetAlquiler 
 
 # 👇 IMPORTA la vista CUSTOM que valida email/username y aplica bloqueo
 from accounts.auth import EmailOrUsernameTokenObtainPairView
 
 router = DefaultRouter()
 router.register(r'gestion-empleados', EmpleadoViewSet, basename='empleado')
+router.register(r'productos', ProductoViewSet, basename='producto')
+router.register(r'incidentes', IncidenteViewSet, basename='incidente')
 
 urlpatterns = [
     path('admin/', admin.site.urls),
