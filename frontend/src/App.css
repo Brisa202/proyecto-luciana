@@ -263,3 +263,52 @@ button{ font-family:inherit; }
 .fieldbox legend{ color:var(--muted); padding:0 6px; }
 .two-cols{ display:grid; gap:12px; grid-template-columns:1fr 1fr; }
 .select-clean{ width:100%; background:transparent; border:0; outline:none; color:var(--text); padding:14px 2px 12px; font-size:16px; }
+/* ===== Selects oscuros (mejor legibilidad) ===== */
+html{ color-scheme: dark; }  /* ayuda a que el UI nativo sea oscuro */
+
+/* Flecha custom opcional */
+.select-wrap{ position:relative; }
+.select-wrap::after{
+  content:"";
+  position:absolute; right:10px; top:50%; transform:translateY(-50%) rotate(45deg);
+  width:8px; height:8px;
+  border-right:2px solid var(--text);
+  border-bottom:2px solid var(--text);
+  opacity:.75; pointer-events:none;
+}
+
+/* Estilo base para todos tus selects */
+.select-clean,
+.underline-field select{
+  width:100%;
+  background:#0f0f0f;        /* FONDO OSCURO */
+  color:var(--text);          /* TEXTO CLARO  */
+  border:0;
+  outline:none;
+  padding:12px 34px 10px 2px; /* espacio para la flecha */
+  font-size:16px;
+  appearance:none; -webkit-appearance:none; -moz-appearance:none;
+  border-radius:8px;          /* no se nota si usás underline-field */
+}
+
+/* Hover/focus */
+.select-clean:focus,
+.underline-field:focus-within select{
+  box-shadow:0 0 0 2px rgba(255,215,0,.25);
+}
+
+/* Menú desplegable */
+.select-clean option,
+.underline-field select option{
+  background:#0f0f0f;   /* color del popup */
+  color:var(--text);
+}
+
+/* Placeholder / opción deshabilitada */
+.select-clean option[disabled],
+.underline-field select option[disabled]{
+  color:var(--muted);
+}
+
+/* Quita la flecha nativa en IE/Edge legado */
+select::-ms-expand{ display:none; }

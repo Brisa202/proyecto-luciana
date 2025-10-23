@@ -14,6 +14,15 @@ import ProductCreate from './pages/ProductCreate';
 import Incidents from './pages/Incidents';
 import IncidentCreate from './pages/IncidentCreate';
 
+import Rentals from './pages/Rentals';
+import RentalCreate from './pages/RentalCreate';
+
+import RentalEdit from './pages/RentalEdit';
+
+import Clients from './pages/Clients';
+import ClientForm from './pages/ClientForm';
+
+
 export default function App() {
   return (
     <Routes>
@@ -47,7 +56,13 @@ export default function App() {
 
       <Route path="/incidentes" element={<ProtectedRoute><Incidents /></ProtectedRoute>} />
       <Route path="/incidentes/nuevo" element={<ProtectedRoute><IncidentCreate /></ProtectedRoute>} />
-      <Route path="/incidentes/:id/editar" element={<ProtectedRoute><IncidentCreate /></ProtectedRoute>} /> {/* (opcional) */}
+      <Route path="/incidentes/:id/editar" element={<ProtectedRoute><IncidentCreate /></ProtectedRoute>} /> 
+      <Route path="/alquileres" element={<ProtectedRoute><Rentals /></ProtectedRoute>} />
+      <Route path="/alquileres/nuevo" element={<ProtectedRoute><RentalCreate /></ProtectedRoute>} />
+      <Route path="/alquileres/:id/editar" element={<ProtectedRoute><RentalEdit /></ProtectedRoute>} />
+      <Route path="/clientes" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
+      <Route path="/clientes/nuevo" element={<ProtectedRoute><ClientForm /></ProtectedRoute>} />
+      <Route path="/clientes/:id/editar" element={<ProtectedRoute><ClientForm /></ProtectedRoute>} />
     </Routes>
   );
 

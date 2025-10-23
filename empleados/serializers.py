@@ -1,4 +1,5 @@
-from django.db import transaction
+from datetime import date
+from django.db import transaction, IntegrityError
 from rest_framework import serializers
 from django.contrib.auth.models import User, Group
 
@@ -6,20 +7,16 @@ from .models import Empleado
 from accounts.models import Perfil
 
 
-# ========== Users (lite) ==========
+# ===== Usuario (lite) =====
 class UsuarioLiteSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ('id', 'username', 'email', 'first_name', 'last_name')
 
 
-# ========== Empleado (list/retrieve) ==========
+# ===== Empleado (list/retrieve) =====
 class EmpleadoSerializer(serializers.ModelSerializer):
-    """
-    Serializer para listar y obtener detalle de empleados.
-    Expone 'id' (pk) para que el frontend pueda editar/borrar por ID.
-    """
-    id = serializers.IntegerField(source='pk', read_only=True)  # <- clave para frontend
+    id = serializers.IntegerField(source='pk', read_only=True)  # pk estándar para frontend
     usuario = UsuarioLiteSerializer(read_only=True)
     user_id = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(), source='usuario', write_only=True, required=False
@@ -30,8 +27,8 @@ class EmpleadoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Empleado
         fields = (
-            'id',                    # pk estándar para rutas /empleados/:id
-            'id_empleados',          # opcional (compatibilidad con tu modelo)
+            'id',
+            'id_empleados',            # si tu modelo lo expone; no lo uses en frontend
             'usuario', 'user_id',
             'nombre', 'apellido', 'dni', 'telefono',
             'fecha_ingreso', 'fecha_egreso',
@@ -49,7 +46,7 @@ class EmpleadoSerializer(serializers.ModelSerializer):
         return perfil.get_rol_display() if perfil else None
 
 
-# ========== Creación (User + Perfil + Empleado) ==========
+# ===== Alta (User + Perfil + Empleado) =====
 class UsuarioCreacionSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
@@ -68,29 +65,53 @@ class UsuarioCreacionSerializer(serializers.ModelSerializer):
 
 
 class EmpleadoCreacionSerializer(serializers.Serializer):
-    """
-    Crea:
-    - User (credenciales)
-    - Perfil (rol)
-    - Empleado (datos)
-    """
     # Credenciales del usuario
     datos_usuario = UsuarioCreacionSerializer()
 
-    # Atributos del empleado
+    # Datos del empleado
     nombre        = serializers.CharField(max_length=100)
     apellido      = serializers.CharField(max_length=100)
-    dni           = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    dni           = serializers.CharField(max_length=20, required=True, allow_blank=False)
     telefono      = serializers.CharField(max_length=20, required=False, allow_blank=True)
-    fecha_ingreso = serializers.DateField(format="%Y-%m-%d", input_formats=["%Y-%m-%d"])
-    fecha_egreso  = serializers.DateField(format="%Y-%m-%d", input_formats=["%Y-%m-%d"], required=False, allow_null=True)
+
+    fecha_ingreso = serializers.DateField(
+        format="%Y-%m-%d", input_formats=["%Y-%m-%d"],
+        required=False, allow_null=True
+    )
+    fecha_egreso  = serializers.DateField(
+        format="%Y-%m-%d", input_formats=["%Y-%m-%d"],
+        required=False, allow_null=True
+    )
     direccion     = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
-    # rol en Perfil
+    # rol del perfil
     rol_asignado  = serializers.ChoiceField(choices=Perfil.ROLES_CHOICES)
 
+    # ---- validaciones campo a campo ----
+    def validate_dni(self, v):
+        v = (v or '').strip()
+        if not v:
+            raise serializers.ValidationError("El DNI es obligatorio.")
+        if not v.isdigit() or not (6 <= len(v) <= 12):
+            raise serializers.ValidationError("DNI inválido (solo números, 6–12 dígitos).")
+        if Empleado.objects.filter(dni=v).exists():
+            raise serializers.ValidationError("Este DNI ya está registrado.")
+        return v
+
+    def validate_telefono(self, v):
+        if v and (not v.replace('+', '', 1).replace('-', '').isdigit() or len(v) < 6):
+            raise serializers.ValidationError("Teléfono inválido.")
+        return v
+
+    # ---- validación cruzada ----
+    def validate(self, data):
+        fi = data.get('fecha_ingreso')
+        fe = data.get('fecha_egreso')
+        if fe and fi and fe < fi:
+            raise serializers.ValidationError({"fecha_egreso": "No puede ser anterior a la fecha de ingreso."})
+        return data
+
     def to_representation(self, instance: Empleado):
-        # Devolvemos el formato unificado del detalle/lista
         return EmpleadoSerializer(instance).data
 
     @transaction.atomic
@@ -121,20 +142,20 @@ class EmpleadoCreacionSerializer(serializers.Serializer):
                 empleado_group, _ = Group.objects.get_or_create(name='Empleado')
                 usuario.groups.add(empleado_group)
         except Exception:
-            # no cortamos la transacción si falla el grupo
-            pass
+            pass  # no cortamos la transacción por esto
 
-        # 3) Empleado
-        empleado = Empleado.objects.create(usuario=usuario, **validated_data)
+        # 3) Empleado (fecha_ingreso por defecto = hoy)
+        fi = validated_data.pop('fecha_ingreso', None) or date.today()
+        try:
+            empleado = Empleado.objects.create(usuario=usuario, fecha_ingreso=fi, **validated_data)
+        except IntegrityError:
+            # carrera de unicidad DNI
+            raise serializers.ValidationError({'dni': 'Este DNI ya está registrado.'})
         return empleado
 
 
-# ========== Update (Empleado + cambio de rol Perfil) ==========
+# ===== Update (Empleado + cambio de rol en Perfil) =====
 class EmpleadoUpdateSerializer(serializers.ModelSerializer):
-    """
-    Edita campos del Empleado y permite cambiar opcionalmente el rol del Perfil
-    del usuario relacionado. También sincroniza grupos y is_staff.
-    """
     rol_cambio = serializers.ChoiceField(choices=Perfil.ROLES_CHOICES, required=False, allow_null=True)
 
     class Meta:
@@ -145,22 +166,40 @@ class EmpleadoUpdateSerializer(serializers.ModelSerializer):
             'rol_cambio',
         )
 
+    def validate_dni(self, v):
+        v = (v or '').strip()
+        if not v:
+            raise serializers.ValidationError("El DNI es obligatorio.")
+        if not v.isdigit() or not (6 <= len(v) <= 12):
+            raise serializers.ValidationError("DNI inválido (solo números, 6–12 dígitos).")
+        if Empleado.objects.filter(dni=v).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError("Este DNI ya está registrado.")
+        return v
+
+    def validate_telefono(self, v):
+        if v and (not v.replace('+', '', 1).replace('-', '').isdigit() or len(v) < 6):
+            raise serializers.ValidationError("Teléfono inválido.")
+        return v
+
+    def validate(self, data):
+        fi = data.get('fecha_ingreso', getattr(self.instance, 'fecha_ingreso', None))
+        fe = data.get('fecha_egreso', getattr(self.instance, 'fecha_egreso', None))
+        if fe and fi and fe < fi:
+            raise serializers.ValidationError({"fecha_egreso": "No puede ser anterior a la fecha de ingreso."})
+        return data
+
     def to_representation(self, instance):
-        # Unificamos la respuesta con el formato estándar
         return EmpleadoSerializer(instance).data
 
     @transaction.atomic
     def update(self, instance, validated_data):
         rol_cambio = validated_data.pop('rol_cambio', None)
 
-        # Actualiza rol del Perfil si se envía
         if rol_cambio is not None:
             perfil = getattr(instance.usuario, 'perfil', None)
             if perfil:
                 perfil.rol = rol_cambio
                 perfil.save()
-
-                # Sincronizar grupos/is_staff básicos
                 try:
                     admin_g, _ = Group.objects.get_or_create(name='Admin')
                     emp_g, _   = Group.objects.get_or_create(name='Empleado')
@@ -173,12 +212,13 @@ class EmpleadoUpdateSerializer(serializers.ModelSerializer):
                             u.save(update_fields=['is_staff'])
                     else:
                         u.groups.add(emp_g)
-                        # no bajamos is_staff acá por si tiene otros permisos
                 except Exception:
                     pass
 
-        # Campos del Empleado
-        for k, v in validated_data.items():
-            setattr(instance, k, v)
-        instance.save()
-        return instance
+        try:
+            for k, v in validated_data.items():
+                setattr(instance, k, v)
+            instance.save()
+            return instance
+        except IntegrityError:
+            raise serializers.ValidationError({'dni': 'Este DNI ya está registrado.'})

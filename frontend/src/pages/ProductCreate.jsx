@@ -1,3 +1,4 @@
+// src/pages/ProductCreate.jsx
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
@@ -5,6 +6,7 @@ import axios from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import { CATEGORIAS } from './products/categories';
 import { ArrowLeft } from 'lucide-react';
+import { inSet, isNonNegNumber, isRequired, isURL } from '../utils/validators';
 
 export default function ProductCreate(){
   const { isAdmin } = useAuth();
@@ -22,6 +24,7 @@ export default function ProductCreate(){
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
+  const [errs, setErrs] = useState({});
 
   useEffect(() => {
     if (!isEdit) return;
@@ -51,9 +54,24 @@ export default function ProductCreate(){
     );
   }
 
+  const validate = () => {
+    const e = {};
+    const CAT_VALUES = CATEGORIAS.map(c=>c.value);
+    if (!isRequired(nombre)) e.nombre = 'Nombre requerido.';
+    if (!inSet(categoria, CAT_VALUES)) e.categoria = 'Categoría inválida.';
+    if (!isNonNegNumber(precio)) e.precio = 'Precio debe ser ≥ 0.';
+    if (!isNonNegNumber(stock)) e.stock = 'Stock debe ser ≥ 0.';
+    if (!isURL(imagenUrl)) e.imagen_url = 'URL de imagen inválida (http/https).';
+    return e;
+  };
+
   const onSubmit = async (e) => {
     e.preventDefault();
     setMsg('');
+    const eMap = validate();
+    setErrs(eMap);
+    if(Object.keys(eMap).length) return;
+
     try {
       setLoading(true);
       const payload = {
@@ -90,39 +108,62 @@ export default function ProductCreate(){
 
         <form onSubmit={onSubmit} style={{display:'grid', gap:16, marginTop:12, maxWidth:840}}>
           <div className="two-cols">
-            <label className="underline-field">
-              <input type="text" placeholder="Nombre del producto"
-                     value={nombre} onChange={e=>setNombre(e.target.value)} required />
+            <label className={`underline-field ${errs.nombre?'field-error':''}`}>
+              <input
+                type="text"
+                placeholder="Nombre del producto"
+                value={nombre}
+                onChange={e=>setNombre(e.target.value)}
+              />
             </label>
-            <label className="underline-field">
+            {errs.nombre && <div className="error-text">{errs.nombre}</div>}
+
+            <label className={`underline-field ${errs.categoria?'field-error':''}`}>
               <select value={categoria} onChange={e=>setCategoria(e.target.value)} className="select-clean">
                 {CATEGORIAS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
               </select>
             </label>
+            {errs.categoria && <div className="error-text">{errs.categoria}</div>}
           </div>
 
           <label className="underline-field">
-            <textarea placeholder="Descripción del producto" rows={3}
-                      style={{width:'100%', background:'transparent', border:0, outline:'none', color:'var(--text)', padding:'12px 2px'}}
-                      value={descripcion} onChange={e=>setDescripcion(e.target.value)} />
+            <textarea
+              placeholder="Descripción del producto"
+              rows={3}
+              style={{width:'100%', background:'transparent', border:0, outline:'none', color:'var(--text)', padding:'12px 2px'}}
+              value={descripcion}
+              onChange={e=>setDescripcion(e.target.value)}
+            />
           </label>
 
           <div className="two-cols">
-            <label className="underline-field">
-              <input type="number" step="0.01" min="0" placeholder="Precio"
-                     value={precio} onChange={e=>setPrecio(e.target.value)} required />
+            <label className={`underline-field ${errs.precio?'field-error':''}`}>
+              <input
+                type="number" step="0.01" min="0" placeholder="Precio"
+                value={precio} onChange={e=>setPrecio(e.target.value)}
+              />
             </label>
-            <label className="underline-field">
-              <input type="number" step="1" min="0" placeholder="Stock"
-                     value={stock} onChange={e=>setStock(e.target.value)} required />
+            {errs.precio && <div className="error-text">{errs.precio}</div>}
+
+            <label className={`underline-field ${errs.stock?'field-error':''}`}>
+              <input
+                type="number" step="1" min="0" placeholder="Stock"
+                value={stock} onChange={e=>setStock(e.target.value)}
+              />
             </label>
+            {errs.stock && <div className="error-text">{errs.stock}</div>}
           </div>
 
           <div className="two-cols" style={{alignItems:'start'}}>
-            <label className="underline-field" style={{gridColumn:'1 / span 1'}}>
-              <input type="url" placeholder="URL de la imagen"
-                     value={imagenUrl} onChange={e=>setImagenUrl(e.target.value)} />
+            <label className={`underline-field ${errs.imagen_url?'field-error':''}`} style={{gridColumn:'1 / span 1'}}>
+              <input
+                type="url"
+                placeholder="URL de la imagen"
+                value={imagenUrl}
+                onChange={e=>setImagenUrl(e.target.value)}
+              />
             </label>
+            {errs.imagen_url && <div className="error-text">{errs.imagen_url}</div>}
 
             <div style={{border:'1px dashed #333', borderRadius:12, minHeight:160, display:'grid', placeItems:'center', overflow:'hidden'}}>
               {imagenUrl

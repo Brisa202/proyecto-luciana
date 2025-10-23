@@ -5,6 +5,11 @@ import axios from '../api/axios';
 import { useAuth } from '../context/AuthContext';
 import { ArrowLeft } from 'lucide-react';
 
+import {
+  inSet, isEmail, isRequired, minLen, notFuture,
+  isDniOrCuit, isPhone
+} from '../utils/validators';
+
 const ROLES = [
   { value: 'administrador',   label: 'Administrador' },
   { value: 'empleado',        label: 'Empleado' },
@@ -15,6 +20,7 @@ const ROLES = [
   { value: 'lavanderia',      label: 'Operaria de Lavandería' },
   { value: 'cajero',          label: 'Cajero' },
 ];
+const ROLES_VALUES = ROLES.map(r => r.value);
 
 export default function EmployeeCreate(){
   const { isAdmin } = useAuth();
@@ -40,8 +46,8 @@ export default function EmployeeCreate(){
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
+  const [errs, setErrs] = useState({});
 
-  // Prefill si edición
   useEffect(() => {
     if (!isEdit) return;
     (async () => {
@@ -78,31 +84,58 @@ export default function EmployeeCreate(){
     setTelefono(''); setDireccion('');
     setFechaIng(''); setFechaEgr('');
     setRol('empleado'); setActivo(true); setMsg('');
+    setErrs({});
+  };
+
+  const validate = () => {
+    const e = {};
+    if (!isEdit) {
+      if (!isRequired(username) || !minLen(username,3)) e.username = 'Usuario (mín. 3).';
+      if (!minLen(password,6)) e.password = 'Contraseña (mín. 6).';
+      if (!isEmail(email)) e.email = 'Email inválido.';
+    }
+    if (!isRequired(nombre)) e.nombre = 'Nombre requerido.';
+    if (!isRequired(apellido)) e.apellido = 'Apellido requerido.';
+    if (!isRequired(fechaIng) || !notFuture(fechaIng)) e.fecha_ingreso = 'Fecha requerida y no futura.';
+    if (fechaEgr && !notFuture(fechaEgr)) e.fecha_egreso = 'Fecha de egreso no puede ser futura.';
+
+    // ✅ Documento OBLIGATORIO (DNI 7–8 dígitos o CUIT válido)
+    if (!isDniOrCuit(dni, true)) e.dni = 'Documento requerido: DNI (7–8 dígitos) o CUIT válido (11).';
+
+    // Teléfono básico (opcional)
+    if (!isPhone(telefono)) e.telefono = 'Teléfono inválido.';
+
+    if (!inSet(rol, ROLES_VALUES)) e.rol = 'Rol inválido.';
+    return e;
   };
 
   const onSubmit = async (e) => {
     e.preventDefault();
     setMsg('');
+    const eMap = validate();
+    setErrs(eMap);
+    if (Object.keys(eMap).length) return;
+
     try {
       setLoading(true);
       if (!isEdit) {
-        if (password.length < 6) {
-          setMsg('La contraseña debe tener al menos 6 caracteres.');
-          setLoading(false); return;
-        }
         const payload = {
           datos_usuario: { username, email, password },
-          nombre, apellido, dni, telefono, direccion,
-          fecha_ingreso: fechaIng || null,
+          nombre, apellido,
+          dni: dni.trim(),
+          telefono,
+          direccion,
+          fecha_ingreso: fechaIng || null,   // el backend usará "hoy" si es null
           fecha_egreso : fechaEgr || null,
           rol_asignado : rol,
         };
         await axios.post('/api/gestion-empleados/', payload);
-        // volver con toast
         navigate('/empleados', { replace:true, state: { created:true, username } });
       } else {
         const payload = {
-          nombre, apellido, dni, telefono, direccion,
+          nombre, apellido,
+          dni: dni.trim(),
+          telefono, direccion,
           fecha_ingreso: fechaIng || null,
           fecha_egreso : fechaEgr || null,
           activo,
@@ -112,7 +145,12 @@ export default function EmployeeCreate(){
         navigate('/empleados', { replace:true, state: { updated:true } });
       }
     } catch (err) {
-      const m = err?.response?.data ? JSON.stringify(err.response.data) : err.message;
+      // Mostrar errores de campo específicos del backend (e.g. {'dni':['duplicado']})
+      const data = err?.response?.data;
+      if (data && typeof data === 'object') {
+        setErrs(prev => ({ ...prev, ...data }));
+      }
+      const m = data ? JSON.stringify(data) : err.message;
       setMsg(`Operación fallida. ${m}`);
     } finally {
       setLoading(false);
@@ -134,20 +172,35 @@ export default function EmployeeCreate(){
             <fieldset className="fieldbox">
               <legend>Credenciales</legend>
 
-              <label className="underline-field">
-                <input type="text" placeholder="Nombre de usuario"
-                  value={username} onChange={e=>setUsername(e.target.value)} required />
+              <label className={`underline-field ${errs.username?'field-error':''}`}>
+                <input
+                  type="text"
+                  placeholder="Nombre de usuario"
+                  value={username}
+                  onChange={e=>setUsername(e.target.value)}
+                />
               </label>
+              {errs.username && <div className="error-text">{String(errs.username)}</div>}
 
-              <label className="underline-field">
-                <input type="email" placeholder="Email"
-                  value={email} onChange={e=>setEmail(e.target.value)} />
+              <label className={`underline-field ${errs.email?'field-error':''}`}>
+                <input
+                  type="email"
+                  placeholder="Email"
+                  value={email}
+                  onChange={e=>setEmail(e.target.value)}
+                />
               </label>
+              {errs.email && <div className="error-text">{String(errs.email)}</div>}
 
-              <label className="underline-field">
-                <input type="password" placeholder="Contraseña (mín. 6)"
-                  value={password} onChange={e=>setPassword(e.target.value)} required />
+              <label className={`underline-field ${errs.password?'field-error':''}`}>
+                <input
+                  type="password"
+                  placeholder="Contraseña (mín. 6)"
+                  value={password}
+                  onChange={e=>setPassword(e.target.value)}
+                />
               </label>
+              {errs.password && <div className="error-text">{String(errs.password)}</div>}
             </fieldset>
           )}
 
@@ -155,25 +208,44 @@ export default function EmployeeCreate(){
             <legend>Datos del empleado</legend>
 
             <div className="two-cols">
-              <label className="underline-field">
-                <input type="text" placeholder="Nombre"
-                  value={nombre} onChange={e=>setNombre(e.target.value)} required />
+              <label className={`underline-field ${errs.nombre?'field-error':''}`}>
+                <input
+                  type="text"
+                  placeholder="Nombre"
+                  value={nombre}
+                  onChange={e=>setNombre(e.target.value)}
+                />
               </label>
-              <label className="underline-field">
-                <input type="text" placeholder="Apellido"
-                  value={apellido} onChange={e=>setApellido(e.target.value)} required />
+              {errs.nombre && <div className="error-text">{String(errs.nombre)}</div>}
+
+              <label className={`underline-field ${errs.apellido?'field-error':''}`}>
+                <input
+                  type="text"
+                  placeholder="Apellido"
+                  value={apellido}
+                  onChange={e=>setApellido(e.target.value)}
+                />
               </label>
+              {errs.apellido && <div className="error-text">{String(errs.apellido)}</div>}
             </div>
 
             <div className="two-cols">
-              <label className="underline-field">
-                <input type="text" placeholder="DNI"
-                  value={dni} onChange={e=>setDni(e.target.value)} />
+              <label className={`underline-field ${errs.dni?'field-error':''}`}>
+                <input
+                  inputMode="numeric" pattern="[0-9\-\.]*"
+                  type="text" placeholder="DNI / CUIT"
+                  value={dni} onChange={e=>setDni(e.target.value)}
+                />
               </label>
-              <label className="underline-field">
-                <input type="text" placeholder="Teléfono"
-                  value={telefono} onChange={e=>setTelefono(e.target.value)} />
+              {errs.dni && <div className="error-text">{Array.isArray(errs.dni) ? errs.dni[0] : String(errs.dni)}</div>}
+
+              <label className={`underline-field ${errs.telefono?'field-error':''}`}>
+                <input
+                  type="text" placeholder="Teléfono"
+                  value={telefono} onChange={e=>setTelefono(e.target.value)}
+                />
               </label>
+              {errs.telefono && <div className="error-text">{String(errs.telefono)}</div>}
             </div>
 
             <label className="underline-field">
@@ -182,22 +254,34 @@ export default function EmployeeCreate(){
             </label>
 
             <div className="two-cols">
-              <label className="underline-field">
-                <input type="date" placeholder="Fecha de ingreso"
-                  value={fechaIng} onChange={e=>setFechaIng(e.target.value)} required={!isEdit} />
+              <label className={`underline-field ${errs.fecha_ingreso?'field-error':''}`}>
+                <input
+                  type="date"
+                  placeholder="Fecha de ingreso"
+                  value={fechaIng}
+                  onChange={e=>setFechaIng(e.target.value)}
+                />
               </label>
-              <label className="underline-field">
-                <input type="date" placeholder="Fecha de egreso (opcional)"
-                  value={fechaEgr} onChange={e=>setFechaEgr(e.target.value)} />
+              {errs.fecha_ingreso && <div className="error-text">{String(errs.fecha_ingreso)}</div>}
+
+              <label className={`underline-field ${errs.fecha_egreso?'field-error':''}`}>
+                <input
+                  type="date"
+                  placeholder="Fecha de egreso (opcional)"
+                  value={fechaEgr}
+                  onChange={e=>setFechaEgr(e.target.value)}
+                />
               </label>
+              {errs.fecha_egreso && <div className="error-text">{String(errs.fecha_egreso)}</div>}
             </div>
 
             <div className="two-cols">
-              <label className="underline-field">
+              <label className={`underline-field ${errs.rol?'field-error':''}`}>
                 <select value={rol} onChange={e=>setRol(e.target.value)} className="select-clean">
                   {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
               </label>
+              {errs.rol && <div className="error-text">{String(errs.rol)}</div>}
 
               {isEdit && (
                 <label className="underline-field" style={{display:'flex', alignItems:'center', gap:10}}>
@@ -216,7 +300,7 @@ export default function EmployeeCreate(){
           </div>
 
           {msg && (
-            <p style={{marginTop:8, color: msg.includes('fallida') ? '#ff7a7a' : '#3ecf8e'}}>
+            <p style={{marginTop:8, color:'#ff7a7a'}}>
               {msg}
             </p>
           )}

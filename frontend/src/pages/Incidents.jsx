@@ -47,11 +47,31 @@ export default function Incidents(){
 
   const openCloseModal = (row) => {
     setClosing(row);
-    setCloseResult('reintegrado');
+    // por defecto: si es irreparable, no tiene sentido “reintegrado”
+    setCloseResult(row.tipo_incidente === 'irreparable' ? 'repuesto' : 'reintegrado');
     setCantidadRep(0);
   };
 
   const doClose = async () => {
+    if(!closing) return;
+
+    // Validaciones de UI antes del PATCH
+    if (closeResult === 'reintegrado' && closing.tipo_incidente === 'irreparable') {
+      pushToast('error', 'Un incidente irreparable no puede reintegrarse.');
+      return;
+    }
+    if (closeResult === 'repuesto') {
+      const n = Number(cantidadRep);
+      if (!Number.isInteger(n) || n <= 0) {
+        pushToast('error', 'Indicá una cantidad repuesta válida (> 0).');
+        return;
+      }
+      if (n > Number(closing.cantidad_afectada || 0)) {
+        pushToast('error', `No podés reponer más de ${closing.cantidad_afectada}.`);
+        return;
+      }
+    }
+
     try {
       const payload = { estado_incidente: 'resuelto', resultado_final: closeResult };
       if (closeResult === 'repuesto') payload.cantidad_repuesta = Number(cantidadRep || 0);
@@ -60,7 +80,9 @@ export default function Incidents(){
       await fetchList();
       pushToast('success', 'Incidente cerrado.');
     } catch (e) {
-      pushToast('error', 'No se pudo cerrar el incidente.');
+      // el backend igual lo valida; mostramos su motivo si viene
+      const m = e?.response?.data ? JSON.stringify(e.response.data) : 'No se pudo cerrar el incidente.';
+      pushToast('error', m);
     }
   };
 
@@ -158,16 +180,29 @@ export default function Incidents(){
             </p>
             <div style={{display:'grid', gap:12}}>
               <label className="underline-field">
-                <select value={closeResult} onChange={e=>setCloseResult(e.target.value)} className="select-clean">
-                  <option value="reintegrado">Reintegrado al stock (reparado)</option>
+                <select
+                  value={closeResult}
+                  onChange={e=>setCloseResult(e.target.value)}
+                  className="select-clean"
+                >
+                  {/* si es irreparable, no ofrecemos reintegrado */}
+                  {closing.tipo_incidente !== 'irreparable' && (
+                    <option value="reintegrado">Reintegrado al stock (reparado)</option>
+                  )}
                   <option value="repuesto">Repuesto por compra</option>
                   <option value="sin_accion">Sin acción (no vuelve)</option>
                 </select>
               </label>
               {closeResult === 'repuesto' && (
                 <label className="underline-field">
-                  <input type="number" min="1" placeholder="Cantidad repuesta"
-                         value={cantidadRep} onChange={e=>setCantidadRep(e.target.value)} />
+                  <input
+                    type="number"
+                    min="1"
+                    max={Number(closing.cantidad_afectada || 0)}
+                    placeholder={`Cantidad repuesta (máx. ${closing.cantidad_afectada})`}
+                    value={cantidadRep}
+                    onChange={e=>setCantidadRep(e.target.value)}
+                  />
                 </label>
               )}
             </div>
